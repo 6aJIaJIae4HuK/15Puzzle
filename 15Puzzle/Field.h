@@ -9,6 +9,8 @@ public:
 	static const FieldType goalState;
 	explicit Field(FieldType table);
 	void show() const;
+	bool operator<(const Field& field) const;
+	FieldType getField() const;
 private:
 	FieldType m_field;
 };
