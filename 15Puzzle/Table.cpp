@@ -1,6 +1,8 @@
 #include <iostream>
 #include <queue>
 #include <set>
+#include <algorithm>
+#include <memory>
 
 #include "Table.h"
 
@@ -24,14 +26,23 @@ void Table::solve()
 		State state = *opened.rbegin();
 		if (state.getField().getField() == Field::goalState)
 		{
+			while (state.getField().getFieldID() != m_state.getField().getFieldID())
+			{
+				m_solution.push_back(state.getField());
+				auto it = closed.find(*state.getParent().get());
+				state = *it;
+			}
+			m_solution.push_back(state.getField());
+			reverse(m_solution.begin(), m_solution.end());
 			std::cout << closed.size() << ' ' << opened.size() << std::endl;
 			m_isSolved = true;
 			return;
 		}
-		closed.insert(state);
+		if (closed.find(state) == closed.end())
+			closed.insert(state);
 		std::pair<int, int> coords = state.getCoordsOfEmptyCell();
 		Field::FieldType tmp(state.getField().getField());
-		opened.erase(state);
+		opened.erase(opened.end().operator--());
 
 		int dx[4] = { -1, 1, 0, 0 };
 		int dy[4] = { 0, 0, -1, 1 };
@@ -43,12 +54,13 @@ void Table::solve()
 			{
 				std::swap(tmp[coords.first + dx[i]][coords.second + dy[i]], tmp[coords.first][coords.second]);
 				State tmpState(tmp);
-				if (closed.find(tmpState) == closed.end())
+				if (opened.find(tmpState) == opened.end())
 				{
 					int g_score = 1 + state.getG();
 					if (opened.find(tmpState) == opened.end())
 					{
-						tmpState.setLength(g_score);
+						tmpState.setG(g_score);
+						tmpState.setParent(state);
 						opened.insert(tmpState);
 					}
 					else
@@ -56,11 +68,14 @@ void Table::solve()
 						if (g_score < tmpState.getG())
 						{
 							opened.erase(tmpState);
-							tmpState.setLength(g_score);
+							tmpState.setG(g_score);
+							tmpState.setParent(state);
 							opened.insert(tmpState);
 						}
 					}
 				}
+				if (opened.size() % 1000 == 0)
+					std::cout << opened.size() << ' ' << closed.size() << std::endl;
 				std::swap(tmp[coords.first + dx[i]][coords.second + dy[i]], tmp[coords.first][coords.second]);
 			}
 		}
@@ -75,6 +90,7 @@ void Table::showSolution() const
 	}
 	else
 	{
+		std::cout << "SOLVED" << std::endl;
 		for (auto it = m_solution.begin(); it != m_solution.end(); it++)
 		{
 			it->show();

@@ -3,6 +3,8 @@
 #include "State.h"
 #include "Table.h"
 
+//#pragma comment(linker, "/STACK:2147483648")
+
 int main()
 {
 	Field::FieldType field;

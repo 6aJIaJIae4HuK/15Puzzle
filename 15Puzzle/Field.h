@@ -10,7 +10,11 @@ public:
 	explicit Field(FieldType table);
 	void show() const;
 	bool operator<(const Field& field) const;
+	bool operator!=(const Field& field) const;
+	Field& operator=(const Field& field);
 	FieldType getField() const;
+	unsigned long long getFieldID() const;
+	int getAtPos(const int& row, const int& col) const;
 private:
-	FieldType m_field;
+	unsigned long long m_fieldID;
 };
