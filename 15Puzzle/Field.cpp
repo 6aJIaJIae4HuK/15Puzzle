@@ -1,42 +1,36 @@
 #include <iostream>
 #include <iomanip>
+//#include <omp.h>
 
 #include "Field.h"
 
-const Field::FieldType 
-Field::goalState{ { { 1, 2, 3, 4 },{ 5, 6, 7, 8 },{ 9, 10, 11, 12 },{ 13, 14, 15, 0 } } };
 
-Field::Field(Field::FieldType field) : m_fieldID(0), m_heuristic(0)
+Field::Field(Field::FieldType field) : m_fieldID(0)
 {
-	for (int i = 0; i < 4; i++)
+	unsigned long long res = 0;
+	//std::pair<int, int> coords;
+	//#pragma omp parallel for reduction(|:res)
+	for (int i = 0; i < 16; i++)
 	{
-		for (int j = 0; j < 4; j++)
-		{
-			if (field[i][j] > 0)
-				m_heuristic += (std::abs(i - (field[i][j] - 1) / 4) + std::abs(j - (field[i][j] - 1) % 4));
-			else
-				m_coordsOfEmpty = std::make_pair(i, j);
-			m_fieldID |= ((unsigned long long(field[i][j] & 0xFF)) << (4 * (15 - (4 * i + j))));
-		}
+		res |= ((unsigned long long(field[i / 4][i % 4] & 0xFF)) << (4 * (15 - i)));
 	}
 	
-}
-/*
-Field::Field(unsigned long long fieldID) : m_fieldID(fieldID)
-{
-	for (int i = 0; i < 4; i++)
+	for (int i = 0; i < 16; i++)
 	{
-		for (int j = 0; j < 4; j++)
-		{
-			int n = getAtPos(i, j);
-			if (n > 0)
-				m_mnh += (std::abs(i - (n - 1) / 4) + std::abs(j - (n - 1) % 4));
-			else
-				m_coordsOfEmpty = std::make_pair(i, j);
-		}
+		if (field[i / 4][i % 4] == 0)
+			m_coordsOfEmpty = std::make_pair(i / 4, i % 4);
 	}
+
+	m_fieldID = res;
 }
-*/
+
+
+Field::Field(const Field& field) : m_fieldID(field.getFieldID()),
+								   m_coordsOfEmpty(field.getCoordsOfEmptyCell())
+{
+
+}
+
 void Field::show() const
 {
 	FieldType f = getField();
@@ -55,12 +49,10 @@ void Field::show() const
 Field::FieldType Field::getField() const
 {
 	FieldType res;
-	for (int i = 0; i < 4; i++)
+	//#pragma omp parallel for shared(res) 
+	for (int i = 0; i < 16; i++)
 	{
-		for (int j = 0; j < 4; j++)
-		{
-			res[i][j] = getAtPos(i, j);
-		}
+		res[i / 4][i % 4] = getAtPos(i / 4, i % 4);
 	}
 	return res;
 }
@@ -78,6 +70,7 @@ bool Field::operator!=(const Field& field) const
 Field& Field::operator=(const Field& field)
 {
 	m_fieldID = field.getFieldID();
+	m_coordsOfEmpty = field.getCoordsOfEmptyCell();
 	return *this;
 }
 
@@ -91,12 +84,22 @@ int Field::getAtPos(const int& row, const int& col) const
 	return (m_fieldID >> (4 * (15 - 4 * row - col))) & 0x0F;
 }
 
-int Field::getHeuristic() const
-{
-	return m_heuristic;
-}
-
 std::pair<int, int> Field::getCoordsOfEmptyCell() const
 {
 	return m_coordsOfEmpty;
+}
+
+bool Field::match(const unsigned long long& mask) const
+{
+	bool res = true;
+	for (int i = 0; i < 4 && res; i++)
+	{
+		for (int j = 0; j < 4 && res; j++)
+		{
+			int num = (mask >> (4 * (15 - (4 * i + j)))) & 0x0F;
+			if (num > 0 && getAtPos(i, j) != num)
+				res = false;
+		}
+	}
+	return res;
 }

@@ -4,8 +4,12 @@
 #include <set>
 #include <algorithm>
 #include <memory>
+#include <ctime>
+#include <omp.h>
 
 #include "Table.h"
+
+std::map<Field, Field> Table::m_parent;
 
 Table::Table(Field::FieldType field) : m_startField(field), m_isSolved(false)
 {
@@ -19,157 +23,130 @@ void Table::showTable() const
 
 void Table::solve()
 {
-	m_bound = m_startField.getHeuristic();
-
-	while (m_bound <= 100)
+	if (!isSolvable())
+		return;
+	clock_t t1 = clock();
+	unsigned long long masks[9] =
 	{
-		m_minPrev = 1000000000;
-		bool found = search(m_startField, 0, m_startField);
-		if (found)
-		{
-			std::reverse(m_solution.begin(), m_solution.end());
-			return;
-		}
-		m_bound = m_minPrev;
+		0x0000000000000000ll,
+		0x1000000000000000ll,
+		0x1200000000000000ll,
+		0x1230000000000000ll,
+		0x1230000400000000ll,
+		0x1234000000000000ll,
+		0x1234500000000000ll,
+		0x1234560000000000ll,
+		0x123456789ABCDEF0ll
+	};
+	Field field = m_startField;
+	for (int i = 1; i < 9; i++)
+	{
+		field = searchForMask(field, masks[(i == 5 ? i - 3 : i - 1)], masks[i]);
 	}
-}
 
-bool Table::search(Field field, int g, Field parent)
-{
-	//m_lookedNodes.insert(field);
-	//if (m_lookedNodes.size() % 1000 == 0)
-	//	std::cout << m_lookedNodes.size() << std::endl;
-	int f = g + field.getHeuristic();
-	if (f > m_bound)
+	while (field != m_startField)
 	{
-		if (m_minPrev > f)
-			m_minPrev = f;
-		return false;
-	}
-	Field::FieldType tmp = field.getField();
-	if (tmp == Field::goalState)
-	{
-		m_isSolved = true;
 		m_solution.push_back(field);
-		return true;
+		field = m_parent.at(field);
 	}
-	int min = 100000000;
-	int dx[4] = { -1, 1, 0, 0 };
-	int dy[4] = { 0, 0, -1, 1 };
-	std::pair<int, int> coords = field.getCoordsOfEmptyCell();
-	for (int i = 0; i < 4; i++)
-	{
-		if (coords.first + dx[i] < 0 || coords.first + dx[i] > 3 ||
-			coords.second + dy[i] < 0 || coords.second + dy[i] > 3)
-			continue;
-		std::swap(tmp[coords.first + dx[i]][coords.second + dy[i]], tmp[coords.first][coords.second]);
-		if (Field(tmp) != parent)
-		{
-			bool found = search(Field(tmp), g + 1, field);
-			if (found)
-			{
-				m_solution.push_back(field);
-				return found;
-			}
-		}
-		std::swap(tmp[coords.first + dx[i]][coords.second + dy[i]], tmp[coords.first][coords.second]);
-	}
-	return false;
+	m_solution.push_back(m_startField);
+	std::reverse(m_solution.begin(), m_solution.end());
+	m_isSolved = true;
+	clock_t t2 = clock();
+	printf("%.3lf seconds\n", double(t2 - t1) / 1000);
 }
-/*
-void Table::solve()
+
+bool Table::isSolvable() const
 {
-	std::map<Field, std::pair<int, Field>> openedNodes;
-	std::map<Field, std::pair<int, Field>> closedNodes;
-	openedNodes.insert(std::make_pair(m_startField, std::make_pair(0, m_startField)));
-	while (!openedNodes.empty())
+	int inv = 0;
+	for (int i = 0; i < 16; i++)
 	{
-		int f = 10000000;
-		auto field = openedNodes.begin();
-		for (auto it = openedNodes.begin(); it != openedNodes.end(); it++)
+		if (m_startField.getAtPos(i / 4, i % 4) != 0)
 		{
-			if (it->first.getHeuristic() + it->second.first < f)
+			for (int j = 0; j < i; j++)
 			{
-				f = it->first.getHeuristic() + it->second.first;
-				field = it;
-			} else
-			if (it->first.getHeuristic() + it->second.first == f)
-			{
-				if (it->second.first > field->second.first)
+				if (m_startField.getAtPos(j / 4, j % 4) > m_startField.getAtPos(i / 4, i % 4))
 				{
-					f = it->first.getHeuristic() + it->second.first;
-					field = it;
+					inv++;
 				}
 			}
 		}
-		if (field->first.getField() == Field::goalState)
+	}
+
+	for (int i = 0; i < 16; i++)
+	{
+		if (m_startField.getAtPos(i / 4, i % 4) == 0)
 		{
-			while (field->first != m_startField)
-			{
-				m_solution.push_back(field->first);
-				field = closedNodes.find(field->second.second);
-			}
-			m_solution.push_back(field->first);
-			reverse(m_solution.begin(), m_solution.end());
-			m_isSolved = true;
-			return;
+			inv += (i / 4 + 1);
 		}
-		if (closedNodes.find(field->first) == closedNodes.end())
-			closedNodes.insert(std::make_pair(field->first, field->second));
-		std::pair<int, int> coords = field->first.getCoordsOfEmptyCell();
-		Field::FieldType tmp(field->first.getField());
-		Field parent = field->first;
-		int g = field->second.first;
+	}
 
-		openedNodes.erase(field);
+	return (inv & 1) ? false : true;
+}
 
-		int dx[4] = { -1, 1, 0, 0 };
-		int dy[4] = { 0, 0, -1, 1 };
+Field Table::searchForMask(const Field& field, const unsigned long long& prevMask, const unsigned long long& mask)
+{
+	std::queue<Field> q;
+	q.push(field);
+	if (m_parent.find(field) == m_parent.end())
+		m_parent.insert(std::make_pair(field, field));
 
+	//omp_lock_t lock;
+	//omp_init_lock(&lock);
+
+
+	while (!q.empty())
+	{
+		Field f = q.front();
+		q.pop();
+		if (f.match(mask))
+			return f;
+
+		const int dx[4] = { -1, 1, 0, 0 };
+		const int dy[4] = { 0, 0, -1, 1 };
+
+		auto tmp = f.getField();
+		auto coords = f.getCoordsOfEmptyCell();
+
+		//#pragma omp parallel for private(tmp) shared(coords, f, q, m_parent)
 		for (int i = 0; i < 4; i++)
 		{
+			tmp = f.getField();
 			if (coords.first + dx[i] >= 0 && coords.first + dx[i] < 4 &&
 				coords.second + dy[i] >= 0 && coords.second + dy[i] < 4)
 			{
+
 				std::swap(tmp[coords.first + dx[i]][coords.second + dy[i]], tmp[coords.first][coords.second]);
 				Field tmpField(tmp);
-				if (openedNodes.find(tmpField) == openedNodes.end())
+
+				if (tmpField.match(prevMask) && m_parent.find(tmpField) == m_parent.end())
 				{
-					int g_score = g + 1;
-					auto it = openedNodes.find(tmpField);
-					if (it == openedNodes.end())
-					{
-						openedNodes.insert(std::make_pair(tmpField, std::make_pair(g_score, parent)));
-					}
-					else
-					{
-						if (g_score < it->second.first)
-						{
-							it->second = std::make_pair(g_score, parent);
-						}
-					}
+					//omp_set_lock(&lock);
+					m_parent.insert(std::make_pair(tmpField, f));
+					q.push(tmpField);
+					//omp_unset_lock(&lock);
 				}
-				if (openedNodes.size() % 1000 == 0)
-					std::cout << openedNodes.size() << ' ' << closedNodes.size() << std::endl;
+
 				std::swap(tmp[coords.first + dx[i]][coords.second + dy[i]], tmp[coords.first][coords.second]);
 			}
 		}
 	}
+
+	//omp_destroy_lock(&lock);
 }
-*/
+
 void Table::showSolution() const
 {
-	if (!m_isSolved)
+	if (m_isSolved)
 	{
-		std::cout << "Table isn't solved yet" << std::endl;
-	}
-	else
-	{
-		std::cout << "SOLVED" << std::endl;
 		for (auto it = m_solution.begin(); it != m_solution.end(); it++)
 		{
 			it->show();
 			std::cout << std::endl;
 		}
+	}
+	else
+	{
+		std::cout << "Not solvable!!!" << std::endl;
 	}
 }
